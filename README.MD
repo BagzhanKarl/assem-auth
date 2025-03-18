@@ -2,7 +2,7 @@
 
 [![PyPI version](https://img.shields.io/pypi/v/assem.svg)](https://pypi.org/project/assem/)
 [![Python versions](https://img.shields.io/pypi/pyversions/assem.svg)](https://pypi.org/project/assem/)
-[![License](https://img.shields.io/github/license/BagzhanKarl/assem-auth.svg)](https://github.com/BagzhanKarl/assem-auth/blob/master/LICENSE)
+[![License](https://img.shields.io/github/license/BagzhanKarl/assem.svg)](https://github.com/BagzhanKarl/assem-auth/blob/master/LICENSE)
 
 A flexible and secure JWT authentication framework for FastAPI applications.
 
