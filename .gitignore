@@ -119,3 +119,6 @@ dmypy.json
 # OS specific files
 .DS_Store
 Thumbs.db
+
+assem.egg-info
+dist
