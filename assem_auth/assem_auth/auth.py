@@ -9,16 +9,16 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 
 
-# Модель ответа для ошибок аутентификации
+# Authentication error response model
 class AuthError(BaseModel):
     detail: str
     code: str
 
 
 class ServiceMode:
-    """Режимы работы класса авторизации для разных сервисов"""
-    FULL = "full"  # Полный доступ (создание и проверка токенов)
-    VERIFY_ONLY = "verify"  # Только проверка токенов
+    """Service modes for authentication class"""
+    FULL = "full"  # Full access (token creation and verification)
+    VERIFY_ONLY = "verify"  # Token verification only
 
 
 class AssemAUTH:
@@ -28,7 +28,7 @@ class AssemAUTH:
             algo: str = "HS256",
             access_token_expire_minutes: int = 30,
             refresh_token_expire_days: int = 7,
-            token_issuer: str = "jaai-api",
+            token_issuer: str = "assem-api",
             token_audience: List[str] = None,
             secure_cookies: bool = True,
             cookie_domain: str = None,
@@ -37,45 +37,45 @@ class AssemAUTH:
             service_mode: str = ServiceMode.FULL
     ):
         """
-        Инициализирует сервис аутентификации с настраиваемыми параметрами.
+        Initialize authentication service with customizable parameters.
 
         Args:
-            secret_key: Секретный ключ для подписи JWT (если None, генерируется автоматически)
-            algo: Алгоритм подписи JWT
-            access_token_expire_minutes: Время жизни access токена в минутах
-            refresh_token_expire_days: Время жизни refresh токена в днях
-            token_issuer: Издатель токена (iss claim)
-            token_audience: Целевая аудитория токена (aud claim)
-            secure_cookies: Устанавливать ли флаг Secure для cookies
-            cookie_domain: Домен для cookies
-            enable_csrf_protection: Включить ли защиту от CSRF
-            enable_jti: Включить ли уникальные идентификаторы для токенов
-            service_mode: Режим работы сервиса (FULL - создание и проверка токенов,
-                                              VERIFY_ONLY - только проверка токенов)
+            secret_key: Secret key for JWT signing (if None, generated automatically)
+            algo: JWT signing algorithm
+            access_token_expire_minutes: Access token lifetime in minutes
+            refresh_token_expire_days: Refresh token lifetime in days
+            token_issuer: Token issuer (iss claim)
+            token_audience: Token audience (aud claim)
+            secure_cookies: Whether to set Secure flag for cookies
+            cookie_domain: Cookie domain
+            enable_csrf_protection: Enable CSRF protection
+            enable_jti: Enable unique identifiers for tokens
+            service_mode: Service mode (FULL - create and verify tokens,
+                                     VERIFY_ONLY - verify tokens only)
         """
-        # Если ключ не предоставлен, генерируем безопасный ключ (в продакшне всегда нужно задавать вручную)
+        # If key not provided, generate a secure key (in production, always set manually)
         self.secret_key = secret_key or os.environ.get("JWT_SECRET_KEY") or secrets.token_hex(32)
         self.algo = algo
         self.access_token_expire_minutes = access_token_expire_minutes
         self.refresh_token_expire_days = refresh_token_expire_days
         self.token_issuer = token_issuer
-        self.token_audience = token_audience or ["jaai-client"]
+        self.token_audience = token_audience or ["assem-client"]
         self.secure_cookies = secure_cookies
         self.cookie_domain = cookie_domain
         self.enable_csrf_protection = enable_csrf_protection
         self.enable_jti = enable_jti
 
-        # Устанавливаем режим работы сервиса
+        # Set service mode
         self.service_mode = service_mode
 
         if self.service_mode not in [ServiceMode.FULL, ServiceMode.VERIFY_ONLY]:
             raise ValueError(
-                f"Неверный режим сервиса: {service_mode}. Допустимые значения: {ServiceMode.FULL}, {ServiceMode.VERIFY_ONLY}")
+                f"Invalid service mode: {service_mode}. Valid values: {ServiceMode.FULL}, {ServiceMode.VERIFY_ONLY}")
 
-        # Инициализация HTTP bearer для получения токена из заголовка Authorization
+        # Initialize HTTP bearer for Authorization header token extraction
         self.http_bearer = HTTPBearer(auto_error=False)
 
-        # Внутренний кэш отозванных токенов (в продакшн стоит заменить на Redis)
+        # Internal revoked tokens cache (should be replaced with Redis in production)
         self._revoked_tokens = set()
 
     def create_jwt_token(
@@ -85,27 +85,27 @@ class AssemAUTH:
             token_type: str = "access"
     ) -> str:
         """
-        Генерирует JWT-токен с улучшенной безопасностью.
+        Generate JWT token with enhanced security.
 
         Args:
-            data: Полезная нагрузка токена
-            expires_delta: Время жизни токена
-            token_type: Тип токена ("access" или "refresh")
+            data: Token payload
+            expires_delta: Token lifetime
+            token_type: Token type ("access" or "refresh")
 
         Returns:
-            Строка JWT-токена
+            JWT token string
 
         Raises:
-            PermissionError: Если сервис работает в режиме VERIFY_ONLY
+            PermissionError: If service is in VERIFY_ONLY mode
         """
-        # Проверяем разрешения для текущего режима сервиса
+        # Check permissions for current service mode
         if self.service_mode == ServiceMode.VERIFY_ONLY:
             raise PermissionError(
-                "Данный экземпляр JaaiAuthx работает только в режиме проверки токенов. Создание токенов запрещено.")
+                "This AssemAUTH instance is in verification-only mode. Token creation is not allowed.")
 
         to_encode = data.copy()
 
-        # Устанавливаем время создания и истечения токена
+        # Set token creation and expiration time
         now = datetime.utcnow()
 
         if token_type == "access":
@@ -115,16 +115,16 @@ class AssemAUTH:
 
         expire = now + expires_delta
 
-        # Добавляем стандартные JWT-клеймы для безопасности
+        # Add standard JWT claims for security
         to_encode.update({
-            "iat": now,  # Issued At - время создания токена
-            "exp": expire,  # Expiration Time - время истечения токена
-            "iss": self.token_issuer,  # Issuer - издатель токена
-            "aud": self.token_audience,  # Audience - аудитория токена
-            "type": token_type,  # Тип токена (access/refresh)
+            "iat": now,  # Issued At - token creation time
+            "exp": expire,  # Expiration Time
+            "iss": self.token_issuer,  # Issuer
+            "aud": self.token_audience,  # Audience
+            "type": token_type,  # Token type (access/refresh)
         })
 
-        # Добавляем уникальный идентификатор токена (JWT ID) для возможности отзыва
+        # Add unique token identifier (JWT ID) for revocation capability
         if self.enable_jti:
             to_encode["jti"] = secrets.token_hex(16)
 
@@ -136,26 +136,26 @@ class AssemAUTH:
             additional_data: Dict[str, Any] = None
     ) -> Tuple[str, str, str]:
         """
-        Создаёт access и refresh токены, а также csrf-токен при необходимости.
+        Create access and refresh tokens, and csrf token if needed.
 
         Args:
-            user_id: Идентификатор пользователя
-            additional_data: Дополнительные данные для включения в токен
+            user_id: User identifier
+            additional_data: Additional data to include in the token
 
         Returns:
-            Кортеж (access_token, refresh_token, csrf_token)
+            Tuple (access_token, refresh_token, csrf_token)
 
         Raises:
-            PermissionError: Если сервис работает в режиме VERIFY_ONLY
+            PermissionError: If service is in VERIFY_ONLY mode
         """
-        # Проверяем разрешения для текущего режима сервиса
+        # Check permissions for current service mode
         if self.service_mode == ServiceMode.VERIFY_ONLY:
             raise PermissionError(
-                "Данный экземпляр JaaiAuthx работает только в режиме проверки токенов. Создание токенов запрещено.")
+                "This AssemAUTH instance is in verification-only mode. Token creation is not allowed.")
 
         data = {"sub": str(user_id)}
 
-        # Добавляем дополнительные данные в токен (например, роли пользователя)
+        # Add additional data to token (e.g., user roles)
         if additional_data:
             data.update(additional_data)
 
@@ -185,37 +185,37 @@ class AssemAUTH:
             csrf_token: str = ""
     ) -> None:
         """
-        Устанавливает токены в защищенные куки.
+        Set tokens in secure cookies.
 
         Args:
-            response: Объект Response FastAPI
-            access_token: JWT access токен
-            refresh_token: JWT refresh токен
-            csrf_token: CSRF токен (если включена защита)
+            response: FastAPI Response object
+            access_token: JWT access token
+            refresh_token: JWT refresh token
+            csrf_token: CSRF token (if protection enabled)
 
         Raises:
-            PermissionError: Если сервис работает в режиме VERIFY_ONLY
+            PermissionError: If service is in VERIFY_ONLY mode
         """
-        # Проверяем разрешения для текущего режима сервиса
+        # Check permissions for current service mode
         if self.service_mode == ServiceMode.VERIFY_ONLY:
             raise PermissionError(
-                "Данный экземпляр JaaiAuthx работает только в режиме проверки токенов. Установка токенов запрещена.")
+                "This AssemAUTH instance is in verification-only mode. Setting tokens is not allowed.")
 
-        # Определяем общие параметры безопасности для cookies
+        # Define common security parameters for cookies
         cookie_params = {
-            "httponly": True,  # Недоступно для JavaScript
-            "samesite": "lax",  # Защита от CSRF
-            "secure": self.secure_cookies,  # Только по HTTPS
+            "httponly": True,  # Not accessible to JavaScript
+            "samesite": "lax",  # CSRF protection
+            "secure": self.secure_cookies,  # HTTPS only
         }
 
         if self.cookie_domain:
             cookie_params["domain"] = self.cookie_domain
 
-        # Устанавливаем время истечения cookie для токенов
+        # Set cookie expiration times
         access_expires = self.access_token_expire_minutes * 60
         refresh_expires = self.refresh_token_expire_days * 24 * 60 * 60
 
-        # Устанавливаем куки для токенов
+        # Set token cookies
         response.set_cookie(
             key="access_token",
             value=access_token,
@@ -230,19 +230,19 @@ class AssemAUTH:
             **cookie_params
         )
 
-        # Если включена защита от CSRF, устанавливаем CSRF токен
-        # CSRF токен не должен быть httponly, чтобы JavaScript имел к нему доступ
+        # If CSRF protection is enabled, set CSRF token
+        # CSRF token should not be httponly, to be accessible by JavaScript
         if self.enable_csrf_protection and csrf_token:
             response.set_cookie(
                 key="csrf_token",
                 value=csrf_token,
                 max_age=access_expires,
-                httponly=False,  # Доступно для JavaScript
+                httponly=False,  # Accessible to JavaScript
                 samesite="lax",
                 secure=self.secure_cookies
             )
 
-            # Также отправляем CSRF-токен в заголовке для удобства
+            # Also send CSRF token in header for convenience
             response.headers["X-CSRF-Token"] = csrf_token
 
     def verify_token(
@@ -251,27 +251,27 @@ class AssemAUTH:
             token_type: str = "access"
     ) -> Dict[str, Any]:
         """
-        Проверяет JWT токен и возвращает его содержимое.
-        Эта функция доступна в любом режиме работы сервиса.
+        Verify JWT token and return its contents.
+        This function is available in any service mode.
 
         Args:
-            token: JWT токен для проверки
-            token_type: Ожидаемый тип токена ("access" или "refresh")
+            token: JWT token to verify
+            token_type: Expected token type ("access" or "refresh")
 
         Returns:
-            Содержимое токена
+            Token contents
 
         Raises:
-            HTTPException: Если токен недействителен или истек
+            HTTPException: If token is invalid or expired
         """
         if not token:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=AuthError(detail="Токен не предоставлен", code="token_missing").dict()
+                detail=AuthError(detail="Token not provided", code="token_missing").dict()
             )
 
         try:
-            # Декодируем и проверяем токен
+            # Decode and verify token
             payload = jwt.decode(
                 token,
                 self.secret_key,
@@ -288,19 +288,19 @@ class AssemAUTH:
                 audience=self.token_audience
             )
 
-            # Проверяем тип токена
+            # Verify token type
             if payload.get("type") != token_type:
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail=AuthError(detail=f"Неверный тип токена, ожидался {token_type}",
+                    detail=AuthError(detail=f"Invalid token type, expected {token_type}",
                                      code="invalid_token_type").dict()
                 )
 
-            # Проверяем, не отозван ли токен
+            # Check if token is revoked
             if self.enable_jti and payload.get("jti") in self._revoked_tokens:
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail=AuthError(detail="Токен был отозван", code="token_revoked").dict()
+                    detail=AuthError(detail="Token has been revoked", code="token_revoked").dict()
                 )
 
             return payload
@@ -308,40 +308,40 @@ class AssemAUTH:
         except jwt.ExpiredSignatureError:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=AuthError(detail="Токен истек", code="token_expired").dict()
+                detail=AuthError(detail="Token expired", code="token_expired").dict()
             )
         except jwt.InvalidIssuerError:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=AuthError(detail="Неверный издатель токена", code="invalid_issuer").dict()
+                detail=AuthError(detail="Invalid token issuer", code="invalid_issuer").dict()
             )
         except jwt.InvalidAudienceError:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=AuthError(detail="Неверная аудитория токена", code="invalid_audience").dict()
+                detail=AuthError(detail="Invalid token audience", code="invalid_audience").dict()
             )
         except jwt.InvalidTokenError:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=AuthError(detail="Неверный токен", code="invalid_token").dict()
+                detail=AuthError(detail="Invalid token", code="invalid_token").dict()
             )
 
     def get_token_from_request(self, request: Request) -> Tuple[str, str]:
         """
-        Получает токен из запроса, проверяя cookies и заголовок Authorization.
-        Эта функция доступна в любом режиме работы сервиса.
+        Get token from request, checking cookies and Authorization header.
+        This function is available in any service mode.
 
         Args:
-            request: Объект запроса FastAPI
+            request: FastAPI request object
 
         Returns:
-            Кортеж (токен, источник токена)
+            Tuple (token, token source)
         """
-        # Проверяем cookies сначала
+        # Check cookies first
         token = request.cookies.get("access_token")
         source = "cookie"
 
-        # Если токена нет в cookie, проверяем заголовок Authorization
+        # If token not in cookie, check Authorization header
         if not token:
             auth = request.headers.get("Authorization")
             if auth and auth.startswith("Bearer "):
@@ -356,21 +356,21 @@ class AssemAUTH:
             verify_csrf: bool = True
     ) -> Dict[str, Any]:
         """
-        Получает полную полезную нагрузку токена, включая все дополнительные данные.
+        Get the full token payload, including all additional data.
 
         Args:
-            request: Объект запроса FastAPI
-            verify_csrf: Проверять ли CSRF токен для запросов не на чтение
+            request: FastAPI Request object
+            verify_csrf: Whether to verify CSRF token for non-read requests
 
         Returns:
-            Словарь с содержимым токена, включая user_id (sub) и все дополнительные данные
+            Dictionary with token contents, including user_id (sub) and all additional data
 
         Raises:
-            HTTPException: Если пользователь не аутентифицирован или произошла ошибка
+            HTTPException: If user is not authenticated or an error occurs
         """
         token, source = self.get_token_from_request(request)
 
-        # Проверяем CSRF токен, если включена защита и это небезопасный метод
+        # Check CSRF token if protection is enabled and method is unsafe
         if (self.enable_csrf_protection and
                 verify_csrf and
                 source == "cookie" and
@@ -382,10 +382,10 @@ class AssemAUTH:
             if not csrf_cookie or not csrf_header or csrf_cookie != csrf_header:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
-                    detail=AuthError(detail="Неверный CSRF-токен", code="invalid_csrf").dict()
+                    detail=AuthError(detail="Invalid CSRF token", code="invalid_csrf").dict()
                 )
 
-        # Проверяем access токен и возвращаем его содержимое
+        # Verify access token and return its contents
         return self.verify_token(token, "access")
 
     def get_current_user(
@@ -394,17 +394,17 @@ class AssemAUTH:
             verify_csrf: bool = True
     ) -> str:
         """
-        Получает идентификатор текущего аутентифицированного пользователя.
+        Get the current authenticated user's ID.
 
         Args:
-            request: Объект запроса FastAPI
-            verify_csrf: Проверять ли CSRF токен для запросов не на чтение
+            request: FastAPI Request object
+            verify_csrf: Whether to verify CSRF token for non-read requests
 
         Returns:
-            Идентификатор пользователя
+            User ID
 
         Raises:
-            HTTPException: Если пользователь не аутентифицирован или произошла ошибка
+            HTTPException: If user is not authenticated or an error occurs
         """
         payload = self.get_token_payload(request, verify_csrf)
         return payload["sub"]
@@ -416,43 +416,43 @@ class AssemAUTH:
             verify_csrf: bool = True
     ) -> Any:
         """
-        Получает данные пользователя из токена.
+        Get user data from token.
 
         Args:
-            request: Объект запроса FastAPI
-            key: Ключ для получения конкретного поля из токена (если None, возвращается весь payload)
-            verify_csrf: Проверять ли CSRF токен для запросов не на чтение
+            request: FastAPI Request object
+            key: Key for getting specific field from token (if None, returns entire payload)
+            verify_csrf: Whether to verify CSRF token for non-read requests
 
         Returns:
-            Значение запрошенного поля или весь payload токена, если key=None
+            Value of requested field or entire token payload if key=None
 
         Raises:
-            HTTPException: Если пользователь не аутентифицирован или произошла ошибка
-            KeyError: Если запрошенный ключ отсутствует в токене
+            HTTPException: If user is not authenticated or an error occurs
+            KeyError: If requested key is not present in token
         """
         payload = self.get_token_payload(request, verify_csrf)
 
-        # Если ключ не указан, возвращаем весь payload
+        # If key not specified, return entire payload
         if key is None:
             return payload
 
-        # Если ключ указан, пытаемся получить его значение
+        # If key specified, try to get its value
         if key in payload:
             return payload[key]
 
-        # Если ключ не найден, возвращаем None
+        # If key not found, return None
         return None
 
     def get_current_user_dependency(self, verify_csrf: bool = True):
         """
-        Создает зависимость FastAPI для получения текущего пользователя.
-        Эта функция доступна в любом режиме работы сервиса.
+        Create FastAPI dependency for getting current user.
+        This function is available in any service mode.
 
         Args:
-            verify_csrf: Проверять ли CSRF токен
+            verify_csrf: Whether to verify CSRF token
 
         Returns:
-            Callable для использования в качестве зависимости
+            Callable for use as a dependency
         """
 
         async def _get_current_user(request: Request):
@@ -462,14 +462,14 @@ class AssemAUTH:
 
     def get_user_data_dependency(self, key: str = None, verify_csrf: bool = True):
         """
-        Создает зависимость FastAPI для получения данных пользователя из токена.
+        Create FastAPI dependency for getting user data from token.
 
         Args:
-            key: Ключ для получения конкретного поля из токена (если None, возвращается весь payload)
-            verify_csrf: Проверять ли CSRF токен
+            key: Key for getting specific field from token (if None, returns entire payload)
+            verify_csrf: Whether to verify CSRF token
 
         Returns:
-            Callable для использования в качестве зависимости
+            Callable for use as a dependency
         """
 
         async def _get_user_data(request: Request):
@@ -483,88 +483,88 @@ class AssemAUTH:
             response: Response
     ) -> Dict[str, str]:
         """
-        Обновляет access_token, используя refresh_token.
+        Refresh access_token using refresh_token.
 
         Args:
-            request: Объект запроса FastAPI
-            response: Объект ответа FastAPI
+            request: FastAPI Request object
+            response: FastAPI Response object
 
         Returns:
-            Словарь с сообщением об успехе
+            Dictionary with success message
 
         Raises:
-            PermissionError: Если сервис работает в режиме VERIFY_ONLY
-            HTTPException: Если refresh_token недействителен или истек
+            PermissionError: If service is in VERIFY_ONLY mode
+            HTTPException: If refresh_token is invalid or expired
         """
-        # Проверяем разрешения для текущего режима сервиса
+        # Check permissions for current service mode
         if self.service_mode == ServiceMode.VERIFY_ONLY:
             raise PermissionError(
-                "Данный экземпляр JaaiAuthx работает только в режиме проверки токенов. Обновление токенов запрещено.")
+                "This AssemAUTH instance is in verification-only mode. Token refresh is not allowed.")
 
         refresh_token = request.cookies.get("refresh_token")
 
-        # Проверяем refresh токен
+        # Verify refresh token
         payload = self.verify_token(refresh_token, "refresh")
 
-        # Получаем данные пользователя из токена
+        # Get user data from token
         user_id = payload["sub"]
 
-        # Сохраняем дополнительные данные из старого токена
+        # Save additional data from old token
         additional_data = {k: v for k, v in payload.items()
                            if k not in ["exp", "iat", "iss", "aud", "sub", "jti", "type"]}
 
-        # Создаем новые токены
+        # Create new tokens
         access_token, new_refresh_token, csrf_token = self.create_tokens(
             user_id,
             additional_data
         )
 
-        # Отзываем старый refresh токен, если есть поддержка jti
+        # Revoke old refresh token if jti support is enabled
         if self.enable_jti and "jti" in payload:
             self._revoked_tokens.add(payload["jti"])
 
-        # Устанавливаем новые токены в куки
+        # Set new tokens in cookies
         self.set_tokens_in_cookies(response, access_token, new_refresh_token, csrf_token)
 
         return {
-            "message": "Токены успешно обновлены",
+            "message": "Tokens refreshed successfully",
             "code": "tokens_refreshed",
             "user_id": user_id
         }
 
     def logout(self, request: Request, response: Response) -> Dict[str, str]:
         """
-        Выполняет выход пользователя, отзывая токены.
+        Log out user by revoking tokens.
 
         Args:
-            request: Объект запроса FastAPI
-            response: Объект ответа FastAPI
+            request: FastAPI Request object
+            response: FastAPI Response object
 
         Returns:
-            Словарь с сообщением об успехе
+            Dictionary with success message
 
         Raises:
-            PermissionError: Если сервис работает в режиме VERIFY_ONLY
+            PermissionError: If service is in VERIFY_ONLY mode
         """
-        # Проверяем разрешения для текущего режима сервиса
+        # Check permissions for current service mode
         if self.service_mode == ServiceMode.VERIFY_ONLY:
             raise PermissionError(
-                "Данный экземпляр JaaiAuthx работает только в режиме проверки токенов. Выход запрещен.")
+                "This AssemAUTH instance is in verification-only mode. Logout is not allowed.")
 
-        # Отзываем токены, если включена поддержка jti
+        # Revoke tokens if jti support is enabled
         if self.enable_jti:
-            # Получаем текущие токены
+            # Get current tokens
             access_token = request.cookies.get("access_token")
             refresh_token = request.cookies.get("refresh_token")
 
-            # Отзываем токены, если они существуют
+            # Revoke tokens if they exist
             try:
                 if access_token:
                     access_payload = jwt.decode(
                         access_token,
                         self.secret_key,
                         algorithms=[self.algo],
-                        options={"verify_exp": False}  # Пропускаем проверку срока действия
+                        options={"verify_exp": False}  # Skip expiration check
                     )
                     if "jti" in access_payload:
                         self._revoked_tokens.add(access_payload["jti"])
@@ -574,50 +574,50 @@ class AssemAUTH:
                         refresh_token,
                         self.secret_key,
                         algorithms=[self.algo],
-                        options={"verify_exp": False}  # Пропускаем проверку срока действия
+                        options={"verify_exp": False}  # Skip expiration check
                     )
                     if "jti" in refresh_payload:
                         self._revoked_tokens.add(refresh_payload["jti"])
             except:
-                # Игнорируем ошибки при декодировании токенов
+                # Ignore errors when decoding tokens
                 pass
 
-        # Удаляем куки
+        # Delete cookies
         response.delete_cookie(key="access_token", path="/", domain=self.cookie_domain)
         response.delete_cookie(key="refresh_token", path="/", domain=self.cookie_domain)
 
         if self.enable_csrf_protection:
             response.delete_cookie(key="csrf_token", path="/", domain=self.cookie_domain)
 
-        return {"message": "Выход выполнен успешно", "code": "logout_success"}
+        return {"message": "Logout successful", "code": "logout_success"}
 
     def revoke_token(self, token: str) -> Dict[str, str]:
         """
-        Отзывает указанный токен, добавляя его в черный список.
+        Revoke specified token by adding it to the blacklist.
 
         Args:
-            token: JWT токен для отзыва
+            token: JWT token to revoke
 
         Returns:
-            Словарь с сообщением об успехе
+            Dictionary with success message
 
         Raises:
-            PermissionError: Если сервис работает в режиме VERIFY_ONLY
-            HTTPException: Если токен недействителен или не содержит JTI
+            PermissionError: If service is in VERIFY_ONLY mode
+            HTTPException: If token is invalid or doesn't contain JTI
         """
-        # Проверяем разрешения для текущего режима сервиса
+        # Check permissions for current service mode
         if self.service_mode == ServiceMode.VERIFY_ONLY:
             raise PermissionError(
-                "Данный экземпляр JaaiAuthx работает только в режиме проверки токенов. Отзыв токенов запрещен.")
+                "This AssemAUTH instance is in verification-only mode. Token revocation is not allowed.")
 
         if not self.enable_jti:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=AuthError(detail="Отзыв токенов не включен", code="revocation_disabled").dict()
+                detail=AuthError(detail="Token revocation is not enabled", code="revocation_disabled").dict()
             )
 
         try:
-            # Декодируем токен, пропуская проверку срока действия
+            # Decode token, skipping expiration check
             payload = jwt.decode(
                 token,
                 self.secret_key,
@@ -628,16 +628,16 @@ class AssemAUTH:
             if "jti" not in payload:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=AuthError(detail="Токен не содержит JTI", code="no_jti").dict()
+                    detail=AuthError(detail="Token does not contain JTI", code="no_jti").dict()
                 )
 
-            # Добавляем JTI в черный список
+            # Add JTI to blacklist
             self._revoked_tokens.add(payload["jti"])
 
-            return {"message": "Токен успешно отозван", "code": "token_revoked"}
+            return {"message": "Token revoked successfully", code="token_revoked"}
 
-        except jwt.InvalidTokenError:
+            except jwt.InvalidTokenError:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=AuthError(detail="Неверный токен", code="invalid_token").dict()
+                detail=AuthError(detail="Invalid token", code="invalid_token").dict()
             )
