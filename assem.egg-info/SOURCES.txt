@@ -1,0 +1,17 @@
+CHANGELOG.md
+LICENSE
+MANIFEST.in
+README.md
+pyproject.toml
+setup.cfg
+setup.py
+assem/__init__.py
+assem/auth.py
+assem/exceptions.py
+assem/service_mode.py
+assem/utils.py
+assem.egg-info/PKG-INFO
+assem.egg-info/SOURCES.txt
+assem.egg-info/dependency_links.txt
+assem.egg-info/requires.txt
+assem.egg-info/top_level.txt

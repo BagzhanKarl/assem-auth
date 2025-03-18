@@ -1,0 +1,13 @@
+fastapi>=0.68.0
+pydantic>=1.8.0
+jwt
+starlette>=0.14.2
+
+[dev]
+pytest>=6.0.0
+pytest-asyncio>=0.15.0
+black>=21.5b2
+isort>=5.9.1
+mypy>=0.910
+flake8>=3.9.2
+uvicorn>=0.14.0
